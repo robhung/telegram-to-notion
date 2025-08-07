@@ -55,3 +55,7 @@ export interface TelegramClientConfig {
   phoneNumber: string;
   sessionName: string;
 }
+
+// Re-export Notion types for convenience
+export type { NotionMessage, NotionClientConfig } from './NotionClient.js';
+export type { ExtractionOptions, ExtractionResult } from './TelegramToNotionService.js';

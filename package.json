@@ -11,12 +11,15 @@
     "dev": "tsx src/index.ts",
     "example": "npm run build && node dist/examples/basic-usage.js",
     "example:dev": "tsx examples/basic-usage.ts",
+    "telegram-to-notion": "npm run build && node dist/examples/telegram-to-notion.js",
+    "telegram-to-notion:dev": "tsx examples/telegram-to-notion.ts",
     "clear-session": "node scripts/clear-session.js"
   },
   "dependencies": {
     "dotenv": "^16.3.1",
     "dotenv-expand": "^12.0.2",
-    "telegram": "^2.24.7"
+    "telegram": "^2.24.7",
+    "@notionhq/client": "^2.2.15"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

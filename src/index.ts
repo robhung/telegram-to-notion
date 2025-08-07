@@ -1,6 +1,9 @@
 import { TelegramClient } from './TelegramClient.js';
+import { NotionClient } from './NotionClient.js';
+import { TelegramToNotionService } from './TelegramToNotionService.js';
 
-export { TelegramClient };
+export { TelegramClient, NotionClient, TelegramToNotionService };
+export * from './types.js';
 
 // If this file is run directly, provide a simple CLI interface
 if (import.meta.url === `file://${process.argv[1]}`) {

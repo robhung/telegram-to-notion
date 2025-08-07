@@ -1,23 +1,48 @@
-# Telegram GramJS Client
+# Telegram to Notion Message Extractor
 
-A powerful TypeScript/Node.js client for reading and sending messages on Telegram using the GramJS library. This project provides a clean, easy-to-use interface for interacting with the Telegram API with full TypeScript support.
+A powerful TypeScript/Node.js application that extracts messages from Telegram and pushes them to Notion pages. This project combines the GramJS library for Telegram integration with the official Notion API to create a seamless message archiving solution.
 
 ## Features
 
+### Telegram Integration
+
 - 🔐 **Secure Authentication** - Uses official Telegram API with session management
-- 📨 **Send Messages** - Send text messages to users, groups, and channels
-- 📖 **Read Messages** - Retrieve message history from any chat
+- 📖 **Message Extraction** - Retrieve message history from any chat, group, or channel
 - 👥 **Chat Management** - List dialogs, search chats, and manage conversations
-- 🔍 **Search Functionality** - Find chats and users by name or username
-- ✅ **Mark as Read** - Mark messages as read in specific chats
-- 🎯 **User Information** - Get current user details and chat information
-- 📘 **TypeScript Support** - Full TypeScript support with built-in Node.js APIs
+- 🔍 **Advanced Filtering** - Filter by date, message type, chat type, and more
+- 📨 **Send Messages** - Send text messages to users, groups, and channels (bonus feature)
+
+### Notion Integration
+
+- 🗄️ **Database Pages** - Each message becomes a structured database page with rich properties
+- 🔍 **Advanced Querying** - Filter, sort, and search messages using Notion's powerful database features
+- 📊 **Batch Processing** - Efficiently handle large message volumes with automatic batching
+- 📈 **Analytics & Stats** - Built-in statistics and insights about your message data
+- 🎯 **Flexible Targeting** - Extract from specific chats or all chats at once
+
+### General Features
+
+- 📘 **TypeScript Support** - Full TypeScript support with comprehensive type definitions
+- ⚙️ **Configurable Options** - Customize extraction behavior with detailed options
+- 🛡️ **Error Handling** - Robust error handling and retry mechanisms
+- 📋 **Interactive CLI** - User-friendly command-line interface for easy operation
 
 ## Prerequisites
 
 - Node.js (version 16 or higher)
-- A Telegram account
-- Telegram API credentials (API ID and API Hash)
+- A Telegram account with API credentials (API ID and API Hash)
+- A Notion account with workspace access
+
+## Quick Start
+
+1. Set up your credentials (see [Installation](#installation) below)
+2. Run the interactive extractor:
+   ```bash
+   npm run telegram-to-notion:dev
+   ```
+3. Follow the prompts to extract messages from your chats to Notion!
+
+For detailed setup instructions, see [DATABASE_SETUP.md](DATABASE_SETUP.md).
 
 ## Installation
 
@@ -55,68 +80,144 @@ A powerful TypeScript/Node.js client for reading and sending messages on Telegra
    Edit the `.env` file with your credentials:
 
    ```env
+   # Telegram API credentials
    TELEGRAM_API_ID=your_api_id_here
    TELEGRAM_API_HASH=your_api_hash_here
    PHONE_NUMBER=+1234567890
    SESSION_NAME=my_telegram_session
+
+   # Notion API credentials (required for message extraction)
+   NOTION_TOKEN=secret_your_integration_token_here
+   NOTION_DATABASE_ID=your_notion_database_id_here
    ```
 
-## Quick Start
+   **Important**: For Notion setup, see the detailed guide: [DATABASE_SETUP.md](DATABASE_SETUP.md)
 
-### Basic Usage
+## Usage Examples
 
-For TypeScript:
+### Interactive Message Extraction
 
-```typescript
-import { TelegramClient } from "./src/TelegramClient.js";
-```
-
-For JavaScript (using compiled files):
-
-```javascript
-import { TelegramClient } from "./dist/src/TelegramClient.js";
-
-const client = new TelegramClient();
-
-// Connect to Telegram
-await client.connect();
-
-// Get current user info
-const me = await client.getMe();
-console.log("Logged in as:", me.firstName);
-
-// Get list of chats
-const dialogs = await client.getDialogs();
-console.log("Chats:", dialogs.length);
-
-// Read messages from a chat
-const messages = await client.getMessages("username", 10);
-console.log("Messages:", messages);
-
-// Send a message
-await client.sendMessage("username", "Hello from GramJS!");
-
-// Don't forget to disconnect
-await client.disconnect();
-```
-
-### Run the Example
+The easiest way to get started is with the interactive CLI:
 
 ```bash
-# Run the basic example (compiled JavaScript)
-npm run example
+# Run the interactive message extractor
+npm run telegram-to-notion:dev
 
-# Run the basic example in development (TypeScript directly)
-npm run example:dev
+# Or run different example modes
+npm run telegram-to-notion:dev simple  # Simple programmatic example
+npm run telegram-to-notion:dev batch   # Batch extraction example
+```
 
-# Run the main script (compiled JavaScript)
-npm start
+### Programmatic Usage
 
-# Run in development mode (TypeScript directly)
-npm run dev
+#### Extract Messages from a Specific Chat
 
-# Build the TypeScript project
-npm run build
+```typescript
+import { TelegramToNotionService } from "./src/TelegramToNotionService.js";
+
+const service = new TelegramToNotionService();
+
+// Extract 50 messages from a specific chat
+const result = await service.extractChatToNotion("username_or_chat_id", {
+  messageLimit: 50,
+  includeOutgoing: true,
+  includeMedia: false,
+});
+
+console.log(
+  `Extracted ${result.messageCount} messages from "${result.chatName}"`
+);
+await service.disconnect();
+```
+
+#### Extract from Multiple Chats
+
+```typescript
+import { TelegramToNotionService } from "./src/TelegramToNotionService.js";
+
+const service = new TelegramToNotionService();
+
+// Extract messages from multiple chats
+const chatIds = ["chat1_username", "chat2_username", "group_name"];
+const results = await service.extractMultipleChatsToNotion(chatIds, {
+  messageLimit: 30,
+  includeOutgoing: true,
+  dateFilter: {
+    from: new Date("2024-01-01"),
+    to: new Date(),
+  },
+});
+
+console.log(`Extracted ${results.length} chats`);
+await service.disconnect();
+```
+
+#### Extract All User Chats
+
+```typescript
+import { TelegramToNotionService } from "./src/TelegramToNotionService.js";
+
+const service = new TelegramToNotionService();
+
+// Extract messages from all user chats (not groups/channels)
+const results = await service.extractAllChatsToNotion({
+  messageLimit: 20,
+  chatFilter: {
+    includeUsers: true,
+    includeGroups: false,
+    includeChannels: false,
+  },
+});
+
+console.log(`Extracted from ${results.length} user chats`);
+await service.disconnect();
+```
+
+### Using Individual Components
+
+If you prefer to use the Telegram and Notion clients separately:
+
+```typescript
+import { TelegramClient, NotionClient } from "./src/index.js";
+
+// Telegram client (existing functionality)
+const telegramClient = new TelegramClient();
+await telegramClient.connect();
+
+const messages = await telegramClient.getMessages("username", 10);
+console.log("Retrieved messages:", messages.length);
+
+// Notion client (new functionality)
+const notionClient = new NotionClient();
+
+// Convert and push messages to Notion
+const notionMessages = messages.map((msg) => ({
+  id: msg.id,
+  content: msg.message || "[No content]",
+  sender: msg.isOutgoing ? "You" : "Other User",
+  date: new Date(msg.date * 1000),
+  chatName: "Chat Name",
+  isOutgoing: msg.isOutgoing,
+}));
+
+await notionClient.addMessages(notionMessages);
+```
+
+### Available Scripts
+
+```bash
+# Message extraction scripts
+npm run telegram-to-notion          # Compiled interactive extractor
+npm run telegram-to-notion:dev      # Development interactive extractor
+
+# Basic Telegram examples (legacy)
+npm run example                     # Basic Telegram client example
+npm run example:dev                 # Development Telegram example
+
+# Development scripts
+npm run build                       # Build TypeScript to JavaScript
+npm run dev                         # Run main index.ts in development
+npm run clear-session               # Clear saved Telegram session
 ```
 
 ## API Reference
@@ -198,6 +299,113 @@ Marks all messages in a chat as read.
 
 ```javascript
 await client.markAsRead("username");
+```
+
+### TelegramToNotionService
+
+#### Constructor
+
+```javascript
+const service = new TelegramToNotionService();
+```
+
+#### Methods
+
+##### `extractChatToNotion(chatId, options)`
+
+Extracts messages from a specific chat and pushes them to Notion.
+
+```javascript
+const result = await service.extractChatToNotion("username", {
+  messageLimit: 50,
+  includeOutgoing: true,
+  includeMedia: false,
+  dateFilter: {
+    from: new Date("2024-01-01"),
+    to: new Date(),
+  },
+});
+// Returns: { chatName, chatId, messageCount, messages }
+```
+
+##### `extractMultipleChatsToNotion(chatIds, options)`
+
+Extracts messages from multiple chats.
+
+```javascript
+const results = await service.extractMultipleChatsToNotion(
+  ["chat1", "chat2"],
+  options
+);
+// Returns: Array of { chatName, chatId, messageCount, messages }
+```
+
+##### `extractAllChatsToNotion(options)`
+
+Extracts messages from all available chats with filtering.
+
+```javascript
+const results = await service.extractAllChatsToNotion({
+  messageLimit: 20,
+  chatFilter: {
+    includeUsers: true,
+    includeGroups: false,
+    includeChannels: false,
+  },
+});
+```
+
+##### `getAvailableChats()`
+
+Gets list of all available chats for extraction.
+
+```javascript
+const chats = await service.getAvailableChats();
+// Returns: Array of DialogInfo objects
+```
+
+### NotionClient
+
+#### Constructor
+
+```javascript
+const notionClient = new NotionClient({
+  token: "your_token", // Optional if in env
+  pageId: "your_page_id", // Optional if in env
+});
+```
+
+#### Methods
+
+##### `addMessage(message)`
+
+Adds a single message to the Notion page.
+
+```javascript
+await notionClient.addMessage({
+  id: 123,
+  content: "Hello world",
+  sender: "John Doe",
+  date: new Date(),
+  chatName: "My Chat",
+  isOutgoing: false,
+});
+```
+
+##### `addMessages(messages)`
+
+Adds multiple messages in batch.
+
+```javascript
+await notionClient.addMessages(messagesArray);
+```
+
+##### `testConnection()`
+
+Tests the connection to Notion API.
+
+```javascript
+const isConnected = await notionClient.testConnection();
 ```
 
 ## Examples
