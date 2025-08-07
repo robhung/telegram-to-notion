@@ -1,0 +1,35 @@
+{
+  "name": "telegram-gramjs-client",
+  "version": "1.0.0",
+  "description": "A Telegram client using GramJS to read and send chat messages",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "example": "npm run build && node dist/examples/basic-usage.js",
+    "example:dev": "tsx examples/basic-usage.ts",
+    "clear-session": "node scripts/clear-session.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "dotenv-expand": "^12.0.2",
+    "telegram": "^2.24.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsx": "^4.6.0",
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "telegram",
+    "gramjs",
+    "chat",
+    "messaging",
+    "api"
+  ],
+  "author": "",
+  "license": "MIT"
+}
