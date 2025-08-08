@@ -8,6 +8,19 @@ export interface CliOptions {
     parentPageId?: string;
     databaseTitle?: string;
     help?: boolean;
+    // Topic-related options
+    topicId?: number;
+    topicIds?: number[];
+    listTopics?: boolean;
+}
+
+export interface TopicInfo {
+  id: number;
+  title: string;
+  messageCount: number;
+  lastMessageDate?: Date;
+  iconColor?: number;
+  iconEmojiId?: string;
 }
 export interface DialogInfo {
   id: string | number;
@@ -29,6 +42,10 @@ export interface MessageInfo {
     type: string;
     hasMedia: true;
   } | null;
+  // Topic/Thread information for forum groups
+  replyToMsgId?: number;  // For normal replies and topic messages
+  topicId?: number;       // Specific topic ID if this is a forum group
+  threadId?: number;      // Thread ID for threaded messages
 }
 
 export interface UserInfo {

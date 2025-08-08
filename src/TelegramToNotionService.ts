@@ -1,6 +1,6 @@
 import { TelegramClient } from './TelegramClient.js';
 import { NotionClient, NotionMessage } from './NotionClient.js';
-import type { MessageInfo, DialogInfo } from './types.js';
+import type { MessageInfo, DialogInfo, TopicInfo } from './types.js';
 
 export interface ExtractionOptions {
   /** Number of messages to extract per chat */
@@ -19,6 +19,12 @@ export interface ExtractionOptions {
   dateFilter?: {
     from?: Date;
     to?: Date;
+  };
+  /** Topic filtering for forum groups */
+  topicFilter?: {
+    topicId?: number;           // Extract from specific topic
+    topicIds?: number[];        // Extract from multiple topics
+    includeGeneralTopic?: boolean; // Include messages not in any topic
   };
 }
 
@@ -113,13 +119,49 @@ export class TelegramToNotionService {
       const chatName = chat?.title || `Chat ${chatId}`;
       console.log(`📋 DEBUG: Found chat: ${chatName} (ID: ${chatId})`);
 
-      // Get messages from Telegram
+      // Get messages from Telegram (with topic filtering if specified)
       console.log('📨 DEBUG: Getting messages from Telegram...');
-      const telegramMessages = await this.withTimeout(
-        this.telegramClient.getMessages(chatId, messageLimit),
-        30000,
-        'Get messages from Telegram'
-      );
+      let telegramMessages: MessageInfo[] = [];
+
+      if (options.topicFilter?.topicId) {
+        // Extract from specific topic
+        console.log(`📨 DEBUG: Extracting from topic ID: ${options.topicFilter.topicId}`);
+        telegramMessages = await this.withTimeout(
+          this.telegramClient.getMessages(chatId, messageLimit, { 
+            topicId: options.topicFilter.topicId 
+          }),
+          30000,
+          'Get messages from specific topic'
+        );
+      } else if (options.topicFilter?.topicIds && options.topicFilter.topicIds.length > 0) {
+        // Extract from multiple topics
+        console.log(`📨 DEBUG: Extracting from ${options.topicFilter.topicIds.length} topics`);
+        for (const topicId of options.topicFilter.topicIds) {
+          const topicMessages = await this.withTimeout(
+            this.telegramClient.getMessages(chatId, messageLimit, { topicId }),
+            30000,
+            `Get messages from topic ${topicId}`
+          );
+          telegramMessages.push(...topicMessages);
+        }
+        // Sort by date descending
+        telegramMessages.sort((a, b) => b.date - a.date);
+        // Limit to requested number
+        telegramMessages = telegramMessages.slice(0, messageLimit);
+      } else {
+        // Extract all messages (default behavior)
+        telegramMessages = await this.withTimeout(
+          this.telegramClient.getMessages(chatId, messageLimit),
+          30000,
+          'Get messages from Telegram'
+        );
+        
+        // If topic filtering is specified but no specific topics, filter out topic messages
+        if (options.topicFilter && !options.topicFilter.includeGeneralTopic) {
+          telegramMessages = telegramMessages.filter(msg => !msg.topicId);
+        }
+      }
+      
       console.log(`📨 DEBUG: Retrieved ${telegramMessages.length} raw messages`);
 
       // Filter messages based on options
@@ -392,7 +434,11 @@ export class TelegramToNotionService {
       chatName,
       chatId,
       isOutgoing: message.isOutgoing,
-      mediaType: message.media?.type
+      mediaType: message.media?.type,
+      // Include topic information if available
+      topicId: message.topicId,
+      topicTitle: message.topicId ? `Topic ${message.topicId}` : undefined, // We can enhance this later
+      threadId: message.threadId
     }));
   }
 
@@ -436,6 +482,38 @@ export class TelegramToNotionService {
       return await this.telegramClient.getDialogs();
     } catch (error) {
       console.error('Error getting available chats:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get topics from a forum group
+   */
+  async getTopics(chatId: string | number): Promise<TopicInfo[]> {
+    try {
+      if (!this.telegramClient.isConnected()) {
+        await this.telegramClient.connect();
+      }
+
+      return await this.telegramClient.getTopics(chatId);
+    } catch (error) {
+      console.error('Error getting topics:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if a chat is a forum group
+   */
+  async isForumGroup(chatId: string | number): Promise<boolean> {
+    try {
+      if (!this.telegramClient.isConnected()) {
+        await this.telegramClient.connect();
+      }
+
+      return await this.telegramClient.isForumGroup(chatId);
+    } catch (error) {
+      console.error('Error checking forum group status:', error);
       throw error;
     }
   }

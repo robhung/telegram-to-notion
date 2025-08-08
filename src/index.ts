@@ -84,6 +84,12 @@ async function main(): Promise<void> {
             case 'stats':
                 await showDatabaseStats(service);
                 break;
+            case 'list-topics':
+                await listTopicsCli(service, displayChats, options);
+                break;
+            case 'topic':
+                await extractTopicCli(service, displayChats, options);
+                break;
             case 'list':
                 // Just list chats (already done above)
                 break;
@@ -155,6 +161,15 @@ function parseCliArgs(): CliOptions {
             case '-t':
                 options.databaseTitle = args[++i];
                 break;
+            case '--topic':
+                options.topicId = parseInt(args[++i]);
+                break;
+            case '--topics':
+                options.topicIds = args[++i].split(',').map(n => parseInt(n.trim()));
+                break;
+            case '--list-topics':
+                options.listTopics = true;
+                break;
         }
     }
 
@@ -178,6 +193,8 @@ Actions:
   --action all          Extract from all chats
   --action create-db    Create a new messages database (use with --parent-page)
   --action stats        Show database statistics
+  --action list-topics  List topics in a forum group (use with --chat)
+  --action topic        Extract from specific topic(s) (use with --chat and --topic/--topics)
 
 Options:
   --chat, -c <number>           Chat number (1-based index from list)
@@ -187,6 +204,9 @@ Options:
   --no-media                    Exclude media messages
   --parent-page, -p <id>        Parent page ID for creating database
   --db-title, -t <title>        Database title (default: "Telegram Messages")
+  --topic <number>              Extract from specific topic ID
+  --topics <numbers>            Comma-separated topic IDs (e.g. 1,2,3)
+  --list-topics                 List available topics in forum group
   --help, -h                    Show this help message
 
 Examples:
@@ -207,6 +227,15 @@ Examples:
 
   # Show database stats
   npm run dev -- --action stats
+
+  # List topics in a forum group
+  npm run dev -- --action list-topics --chat 1
+
+  # Extract from specific topic
+  npm run dev -- --action topic --chat 1 --topic 123 --limit 50
+
+  # Extract from multiple topics
+  npm run dev -- --action topic --chat 1 --topics 123,456,789 --limit 30
 `);
 }
 
@@ -249,11 +278,25 @@ async function extractSpecificChatCli(
         const extractionStartTime = Date.now();
         console.log(`⏰ DEBUG: Extraction started at ${new Date().toISOString()}`);
 
-        const result = await service.extractChatToNotion(selectedChat.id, {
+        // Build extraction options with topic filtering if specified
+        const extractionOptions: any = {
             messageLimit: limit,
             includeOutgoing,
             includeMedia
-        });
+        };
+
+        // Add topic filtering if specified
+        if (options.topicId || options.topicIds) {
+            extractionOptions.topicFilter = {};
+            if (options.topicId) {
+                extractionOptions.topicFilter.topicId = options.topicId;
+            }
+            if (options.topicIds) {
+                extractionOptions.topicFilter.topicIds = options.topicIds;
+            }
+        }
+
+        const result = await service.extractChatToNotion(selectedChat.id, extractionOptions);
 
         const extractionTime = Date.now() - extractionStartTime;
         console.log(`⏰ DEBUG: Extraction completed in ${extractionTime}ms`);
@@ -455,6 +498,133 @@ async function showDatabaseStats(service: TelegramToNotionService): Promise<void
         
     } catch (error) {
         console.error(`❌ Failed to get database statistics:`, error);
+    }
+}
+
+/**
+ * List topics in a forum group
+ */
+async function listTopicsCli(
+    service: TelegramToNotionService, 
+    chats: any[],
+    options: CliOptions
+): Promise<void> {
+    try {
+        if (!options.chatIndex) {
+            console.log('❌ DEBUG: No chat index provided. Use --chat option.');
+            return;
+        }
+
+        const selectedChat = chats[options.chatIndex - 1];
+        
+        if (!selectedChat) {
+            console.log(`❌ DEBUG: Invalid chat number. Must be between 1 and ${chats.length}`);
+            return;
+        }
+
+        console.log(`🔍 Checking if "${selectedChat.title}" is a forum group...`);
+        
+        const isForum = await service.isForumGroup(selectedChat.id);
+        
+        if (!isForum) {
+            console.log(`ℹ️  "${selectedChat.title}" is not a forum group. Regular groups don't have topics.`);
+            return;
+        }
+
+        console.log(`📋 Getting topics from "${selectedChat.title}"...`);
+        
+        const topics = await service.getTopics(selectedChat.id);
+        
+        if (topics.length === 0) {
+            console.log(`📭 No topics found in "${selectedChat.title}"`);
+            return;
+        }
+
+        console.log(`\n🗂️  Found ${topics.length} topics in "${selectedChat.title}":\n`);
+        
+        topics.forEach((topic, index) => {
+            const lastMessage = topic.lastMessageDate ? 
+                ` (last: ${topic.lastMessageDate.toLocaleDateString()})` : '';
+            console.log(`${index + 1}. Topic ${topic.id}: ${topic.title}${lastMessage}`);
+        });
+
+        console.log(`\n💡 To extract from a specific topic, use:`);
+        console.log(`   npm run dev -- --action topic --chat ${options.chatIndex} --topic <topic-id>`);
+        
+    } catch (error) {
+        console.error('❌ DEBUG: Error in listTopicsCli:', error);
+        throw error;
+    }
+}
+
+/**
+ * Extract messages from specific topics
+ */
+async function extractTopicCli(
+    service: TelegramToNotionService, 
+    chats: any[],
+    options: CliOptions
+): Promise<void> {
+    try {
+        if (!options.chatIndex) {
+            console.log('❌ DEBUG: No chat index provided. Use --chat option.');
+            return;
+        }
+
+        if (!options.topicId && !options.topicIds) {
+            console.log('❌ DEBUG: No topic ID(s) provided. Use --topic or --topics option.');
+            return;
+        }
+
+        const selectedChat = chats[options.chatIndex - 1];
+        
+        if (!selectedChat) {
+            console.log(`❌ DEBUG: Invalid chat number. Must be between 1 and ${chats.length}`);
+            return;
+        }
+
+        console.log(`🔍 Checking if "${selectedChat.title}" is a forum group...`);
+        
+        const isForum = await service.isForumGroup(selectedChat.id);
+        
+        if (!isForum) {
+            console.log(`❌ "${selectedChat.title}" is not a forum group. Use --action specific instead.`);
+            return;
+        }
+
+        const limit = options.messageLimit || 50;
+        const includeOutgoing = options.includeOutgoing !== false;
+        const includeMedia = options.includeMedia !== false;
+
+        const extractionOptions: any = {
+            messageLimit: limit,
+            includeOutgoing,
+            includeMedia,
+            topicFilter: {}
+        };
+
+        if (options.topicId) {
+            extractionOptions.topicFilter.topicId = options.topicId;
+            console.log(`🔄 Extracting ${limit} messages from topic ${options.topicId} in "${selectedChat.title}"...`);
+        } else if (options.topicIds) {
+            extractionOptions.topicFilter.topicIds = options.topicIds;
+            console.log(`🔄 Extracting ${limit} messages from ${options.topicIds.length} topics in "${selectedChat.title}"...`);
+        }
+
+        const extractionStartTime = Date.now();
+        
+        const result = await service.extractChatToNotion(selectedChat.id, extractionOptions);
+
+        const extractionTime = Date.now() - extractionStartTime;
+        console.log(`⏰ DEBUG: Topic extraction completed in ${extractionTime}ms`);
+        
+        const topicDesc = options.topicId ? `topic ${options.topicId}` : 
+                         `${options.topicIds!.length} topics`;
+        console.log(`\n✅ Successfully extracted ${result.messageCount} messages from ${topicDesc} in "${result.chatName}"`);
+        
+    } catch (error) {
+        console.error('❌ DEBUG: Error in extractTopicCli:', error);
+        throw error;
     }
 }
 

@@ -12,6 +12,10 @@ export interface NotionMessage {
   isOutgoing: boolean;
   mediaType?: string;
   chatId?: string | number;
+  // Topic information for forum groups
+  topicId?: number;
+  topicTitle?: string;
+  threadId?: number;
 }
 
 export interface NotionClientConfig {
@@ -249,6 +253,31 @@ export class NotionClient {
       };
     }
 
+    // Add topic information if available
+    if (message.topicId) {
+      properties['Topic ID'] = {
+        number: message.topicId,
+      };
+    }
+
+    if (message.topicTitle) {
+      properties['Topic'] = {
+        rich_text: [
+          {
+            text: {
+              content: message.topicTitle,
+            },
+          },
+        ],
+      };
+    }
+
+    if (message.threadId) {
+      properties['Thread ID'] = {
+        number: message.threadId,
+      };
+    }
+
     return properties;
   }
 
@@ -315,6 +344,16 @@ export class NotionClient {
           },
           'Chat ID': {
             rich_text: {},
+          },
+          // Topic fields for forum groups
+          'Topic': {
+            rich_text: {},
+          },
+          'Topic ID': {
+            number: {},
+          },
+          'Thread ID': {
+            number: {},
           },
         },
       });
