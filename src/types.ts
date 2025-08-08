@@ -1,3 +1,14 @@
+export interface CliOptions {
+    action: string;
+    chatIndex?: number;
+    chatIndices?: number[];
+    messageLimit?: number;
+    includeOutgoing?: boolean;
+    includeMedia?: boolean;
+    parentPageId?: string;
+    databaseTitle?: string;
+    help?: boolean;
+}
 export interface DialogInfo {
   id: string | number;
   title: string;
@@ -57,5 +68,5 @@ export interface TelegramClientConfig {
 }
 
 // Re-export Notion types for convenience
-export type { NotionMessage, NotionClientConfig } from './NotionClient.js';
-export type { ExtractionOptions, ExtractionResult } from './TelegramToNotionService.js';
+export type { NotionMessage, NotionClientConfig } from './NotionClient';
+export type { ExtractionOptions, ExtractionResult } from './TelegramToNotionService';

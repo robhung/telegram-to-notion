@@ -9,10 +9,6 @@
     "build": "tsc",
     "start": "npm run build && node dist/index.js",
     "dev": "tsx src/index.ts",
-    "example": "npm run build && node dist/examples/basic-usage.js",
-    "example:dev": "tsx examples/basic-usage.ts",
-    "telegram-to-notion": "npm run build && node dist/examples/telegram-to-notion.js",
-    "telegram-to-notion:dev": "tsx examples/telegram-to-notion.ts",
     "clear-session": "node scripts/clear-session.js"
   },
   "dependencies": {
