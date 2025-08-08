@@ -1,20 +1,26 @@
 import { TelegramToNotionService } from '../src/TelegramToNotionService.js';
-import { createInterface } from 'readline/promises';
+
+interface CliOptions {
+    action: string;
+    chatIndex?: number;
+    chatIndices?: number[];
+    messageLimit?: number;
+    includeOutgoing?: boolean;
+    includeMedia?: boolean;
+    parentPageId?: string;
+    databaseTitle?: string;
+    help?: boolean;
+}
 
 /**
- * Interactive example demonstrating how to extract Telegram messages and push them to Notion
+ * CLI-based example demonstrating how to extract Telegram messages and push them to Notion
  */
-async function interactiveExample(): Promise<void> {
+async function cliExample(): Promise<void> {
     const service = new TelegramToNotionService();
-    const rl = createInterface({
-        input: process.stdin,
-        output: process.stdout,
-    });
     
     // Handle Ctrl+C gracefully
     process.on('SIGINT', async () => {
         console.log('\n\n🛑 Received interrupt signal. Cleaning up...');
-        rl.close();
         await service.disconnect();
         console.log('👋 Cleanup complete. Exiting...');
         process.exit(0);
@@ -22,11 +28,24 @@ async function interactiveExample(): Promise<void> {
 
     try {
         console.log('=== Telegram to Notion Message Extractor ===\n');
+        console.log(`🚀 DEBUG: Application started at ${new Date().toISOString()}`);
 
-        // Get available chats
-        console.log('📡 Connecting to Telegram and fetching your chats...');
+        // Parse command line arguments
+        const options = parseCliArgs();
+        
+        if (options.help) {
+            showHelp();
+            return;
+        }
+
+        // Get available chats first (needed for most operations)
+        console.log('📡 DEBUG: Connecting to Telegram and fetching your chats...');
+        const chatFetchStart = Date.now();
+        
         const chats = await service.getAvailableChats();
         
+        const chatFetchTime = Date.now() - chatFetchStart;
+        console.log(`📡 DEBUG: Chat fetching completed in ${chatFetchTime}ms`);
         console.log(`\n✅ Found ${chats.length} chats. Here are your recent chats:\n`);
         
         // Display first 15 chats
@@ -43,57 +62,45 @@ async function interactiveExample(): Promise<void> {
             console.log(`... and ${chats.length - 15} more chats`);
         }
 
-        // Get user choice
-        console.log('\nChoose an option:');
-        console.log('1. Extract from a specific chat');
-        console.log('2. Extract from multiple specific chats');
-        console.log('3. Extract from all user chats');
-        console.log('4. Extract from all group chats');
-        console.log('5. Extract from all channels');
-        console.log('6. Extract from all chats');
-        console.log('7. Create a new messages database');
-        console.log('8. Query existing messages from database');
-        console.log('9. Show database statistics');
+        console.log(`\n📋 DEBUG: Running action: ${options.action}`);
 
-        const choice = await rl.question('\nEnter your choice (1-9): ');
-
-        switch (choice) {
-            case '1':
-                await extractSpecificChat(service, rl, displayChats);
+        switch (options.action) {
+            case 'specific':
+                await extractSpecificChatCli(service, displayChats, options);
                 break;
-            case '2':
-                await extractMultipleChats(service, rl, displayChats);
+            case 'multiple':
+                await extractMultipleChatsCli(service, displayChats, options);
                 break;
-            case '3':
-                await extractFilteredChats(service, { includeUsers: true });
+            case 'users':
+                await extractFilteredChats(service, { includeUsers: true }, options.messageLimit);
                 break;
-            case '4':
-                await extractFilteredChats(service, { includeGroups: true });
+            case 'groups':
+                await extractFilteredChats(service, { includeGroups: true }, options.messageLimit);
                 break;
-            case '5':
-                await extractFilteredChats(service, { includeChannels: true });
+            case 'channels':
+                await extractFilteredChats(service, { includeChannels: true }, options.messageLimit);
                 break;
-            case '6':
-                await extractAllChats(service);
+            case 'all':
+                await extractAllChats(service, options.messageLimit);
                 break;
-            case '7':
-                await createDatabase(service, rl);
+            case 'create-db':
+                await createDatabaseCli(service, options);
                 break;
-            case '8':
-                await queryMessages(service, rl);
-                break;
-            case '9':
+            case 'stats':
                 await showDatabaseStats(service);
                 break;
+            case 'list':
+                // Just list chats (already done above)
+                break;
             default:
-                console.log('Invalid choice. Exiting...');
+                console.log('❌ Invalid action. Use --help to see available options.');
+                showHelp();
                 return;
         }
 
     } catch (error) {
         console.error('❌ Error:', error);
     } finally {
-        rl.close();
         await service.disconnect();
         
         // Force exit after a short delay to ensure cleanup completes
@@ -105,83 +112,214 @@ async function interactiveExample(): Promise<void> {
 }
 
 /**
- * Extract messages from a specific chat
+ * Parse command line arguments
  */
-async function extractSpecificChat(
+function parseCliArgs(): CliOptions {
+    const args = process.argv.slice(2);
+    const options: CliOptions = {
+        action: 'list',
+        messageLimit: 50,
+        includeOutgoing: true,
+        includeMedia: true
+    };
+
+    for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        
+        switch (arg) {
+            case '--help':
+            case '-h':
+                options.help = true;
+                break;
+            case '--action':
+            case '-a':
+                options.action = args[++i];
+                break;
+            case '--chat':
+            case '-c':
+                options.chatIndex = parseInt(args[++i]);
+                break;
+            case '--chats':
+                options.chatIndices = args[++i].split(',').map(n => parseInt(n.trim()));
+                break;
+            case '--limit':
+            case '-l':
+                options.messageLimit = parseInt(args[++i]);
+                break;
+            case '--no-outgoing':
+                options.includeOutgoing = false;
+                break;
+            case '--no-media':
+                options.includeMedia = false;
+                break;
+            case '--parent-page':
+            case '-p':
+                options.parentPageId = args[++i];
+                break;
+            case '--db-title':
+            case '-t':
+                options.databaseTitle = args[++i];
+                break;
+        }
+    }
+
+    return options;
+}
+
+/**
+ * Show help message
+ */
+function showHelp(): void {
+    console.log(`
+Usage: npm run telegram-to-notion:dev -- [options]
+
+Actions:
+  --action list         List available chats (default)
+  --action specific     Extract from a specific chat (use with --chat)
+  --action multiple     Extract from multiple chats (use with --chats)
+  --action users        Extract from all user chats
+  --action groups       Extract from all group chats
+  --action channels     Extract from all channels
+  --action all          Extract from all chats
+  --action create-db    Create a new messages database (use with --parent-page)
+  --action stats        Show database statistics
+
+Options:
+  --chat, -c <number>           Chat number (1-based index from list)
+  --chats <numbers>             Comma-separated chat numbers (e.g. 1,3,5)
+  --limit, -l <number>          Message limit per chat (default: 50)
+  --no-outgoing                 Exclude your own messages
+  --no-media                    Exclude media messages
+  --parent-page, -p <id>        Parent page ID for creating database
+  --db-title, -t <title>        Database title (default: "Telegram Messages")
+  --help, -h                    Show this help message
+
+Examples:
+  # List all chats
+  npm run telegram-to-notion:dev
+
+  # Extract 100 messages from chat #1
+  npm run telegram-to-notion:dev -- --action specific --chat 1 --limit 100
+
+  # Extract from multiple chats
+  npm run telegram-to-notion:dev -- --action multiple --chats 1,2,3 --limit 20
+
+  # Extract from all user chats
+  npm run telegram-to-notion:dev -- --action users --limit 30
+
+  # Create a new database
+  npm run telegram-to-notion:dev -- --action create-db --parent-page <page-id> --db-title "My Messages"
+
+  # Show database stats
+  npm run telegram-to-notion:dev -- --action stats
+`);
+}
+
+/**
+ * Extract messages from a specific chat using CLI arguments
+ */
+async function extractSpecificChatCli(
     service: TelegramToNotionService, 
-    rl: any, 
-    chats: any[]
+    chats: any[],
+    options: CliOptions
 ): Promise<void> {
     try {
-        console.log(`\n📋 Debug: About to ask for chat number (1-${chats.length})`);
-        const chatIndex = await rl.question(`\nEnter chat number (1-${chats.length}): `);
-        console.log(`📋 Debug: Got chat index: "${chatIndex}"`);
-        
-        const selectedChat = chats[parseInt(chatIndex) - 1];
-        
-        if (!selectedChat) {
-            console.log('Invalid chat number');
+        if (!options.chatIndex) {
+            console.log('❌ DEBUG: No chat index provided. Use --chat option.');
             return;
         }
 
-        console.log(`📋 Debug: Selected chat: ${selectedChat.title}`);
+        console.log(`📋 DEBUG: Using chat index: ${options.chatIndex}`);
         
-        const messageLimit = await rl.question('How many messages to extract? (default: 50): ');
-        console.log(`📋 Debug: Got message limit: "${messageLimit}"`);
-        const limit = parseInt(messageLimit) || 50;
-
-        const includeOutgoing = await rl.question('Include your own messages? (y/n, default: y): ');
-        console.log(`📋 Debug: Got includeOutgoing: "${includeOutgoing}"`);
+        const selectedChat = chats[options.chatIndex - 1];
         
-        const includeMedia = await rl.question('Include media messages? (y/n, default: y): ');
-        console.log(`📋 Debug: Got includeMedia: "${includeMedia}"`);
+        if (!selectedChat) {
+            console.log(`❌ DEBUG: Invalid chat number. Must be between 1 and ${chats.length}`);
+            return;
+        }
 
-        console.log(`\n🔄 Extracting ${limit} messages from "${selectedChat.title}"...`);
+        console.log(`📋 DEBUG: Selected chat: ${selectedChat.title} (ID: ${selectedChat.id})`);
+        
+        const limit = options.messageLimit || 50;
+        const includeOutgoing = options.includeOutgoing !== false;
+        const includeMedia = options.includeMedia !== false;
+
+        console.log(`\n🔄 DEBUG: About to start extraction of ${limit} messages from "${selectedChat.title}"...`);
+        console.log(`🔄 DEBUG: Extraction options:`, {
+            messageLimit: limit,
+            includeOutgoing,
+            includeMedia
+        });
+
+        const extractionStartTime = Date.now();
+        console.log(`⏰ DEBUG: Extraction started at ${new Date().toISOString()}`);
 
         const result = await service.extractChatToNotion(selectedChat.id, {
             messageLimit: limit,
-            includeOutgoing: includeOutgoing.toLowerCase() !== 'n',
-            includeMedia: includeMedia.toLowerCase() !== 'n'
+            includeOutgoing,
+            includeMedia
         });
 
+        const extractionTime = Date.now() - extractionStartTime;
+        console.log(`⏰ DEBUG: Extraction completed in ${extractionTime}ms`);
         console.log(`\n✅ Successfully extracted ${result.messageCount} messages from "${result.chatName}"`);
     } catch (error) {
-        console.error('❌ Error in extractSpecificChat:', error);
+        console.error('❌ DEBUG: Error in extractSpecificChatCli:', error);
+        console.error('❌ DEBUG: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
         throw error;
     }
 }
 
 /**
- * Extract messages from multiple specific chats
+ * Extract messages from multiple specific chats using CLI arguments
  */
-async function extractMultipleChats(
+async function extractMultipleChatsCli(
     service: TelegramToNotionService, 
-    rl: any, 
-    chats: any[]
+    chats: any[],
+    options: CliOptions
 ): Promise<void> {
-    const chatNumbers = await rl.question(`\nEnter chat numbers separated by commas (1-${chats.length}): `);
-    const indices = chatNumbers.split(',').map((n: string) => parseInt(n.trim()) - 1);
-    const selectedChats = indices
-        .filter((i: number) => i >= 0 && i < chats.length)
-        .map((i: number) => chats[i]);
-
-    if (selectedChats.length === 0) {
-        console.log('No valid chats selected');
+    if (!options.chatIndices || options.chatIndices.length === 0) {
+        console.log('❌ DEBUG: No chat indices provided. Use --chats option.');
         return;
     }
 
-    const messageLimit = await rl.question('How many messages per chat? (default: 50): ');
-    const limit = parseInt(messageLimit) || 50;
+    console.log(`📋 DEBUG: Using chat indices: ${options.chatIndices.join(', ')}`);
+    
+    const selectedChats = options.chatIndices
+        .filter((i: number) => i >= 1 && i <= chats.length)
+        .map((i: number) => chats[i - 1]);
 
-    console.log(`\n🔄 Extracting ${limit} messages from ${selectedChats.length} chats...`);
+    if (selectedChats.length === 0) {
+        console.log('❌ DEBUG: No valid chats selected');
+        return;
+    }
+
+    const limit = options.messageLimit || 50;
+
+    console.log(`\n🔄 DEBUG: Extracting ${limit} messages from ${selectedChats.length} chats...`);
+    selectedChats.forEach((chat, index) => {
+        console.log(`  ${index + 1}. ${chat.title}`);
+    });
+
+    const extractionStartTime = Date.now();
+    console.log(`⏰ DEBUG: Multiple chat extraction started at ${new Date().toISOString()}`);
 
     const chatIds = selectedChats.map((chat: any) => chat.id);
     const results = await service.extractMultipleChatsToNotion(chatIds, {
-        messageLimit: limit
+        messageLimit: limit,
+        includeOutgoing: options.includeOutgoing,
+        includeMedia: options.includeMedia
     });
 
+    const extractionTime = Date.now() - extractionStartTime;
+    console.log(`⏰ DEBUG: Multiple chat extraction completed in ${extractionTime}ms`);
+    
     const totalMessages = results.reduce((sum, result) => sum + result.messageCount, 0);
     console.log(`\n✅ Successfully extracted ${totalMessages} messages from ${results.length} chats`);
+    
+    results.forEach(result => {
+        console.log(`  - ${result.chatName}: ${result.messageCount} messages`);
+    });
 }
 
 /**
@@ -189,42 +327,100 @@ async function extractMultipleChats(
  */
 async function extractFilteredChats(
     service: TelegramToNotionService, 
-    filter: { includeUsers?: boolean; includeGroups?: boolean; includeChannels?: boolean }
+    filter: { includeUsers?: boolean; includeGroups?: boolean; includeChannels?: boolean },
+    messageLimit?: number
 ): Promise<void> {
     const chatType = filter.includeUsers ? 'user chats' :
                     filter.includeGroups ? 'group chats' :
                     filter.includeChannels ? 'channels' : 'chats';
 
-    console.log(`\n🔄 Extracting messages from all ${chatType}...`);
+    const limit = messageLimit || 50;
+    console.log(`\n🔄 DEBUG: Extracting messages from all ${chatType} (limit: ${limit})...`);
+
+    const extractionStartTime = Date.now();
+    console.log(`⏰ DEBUG: Filtered extraction started at ${new Date().toISOString()}`);
 
     const results = await service.extractAllChatsToNotion({
-        messageLimit: 50,
+        messageLimit: limit,
         chatFilter: filter
     });
 
+    const extractionTime = Date.now() - extractionStartTime;
+    console.log(`⏰ DEBUG: Filtered extraction completed in ${extractionTime}ms`);
+
     const totalMessages = results.reduce((sum, result) => sum + result.messageCount, 0);
     console.log(`\n✅ Successfully extracted ${totalMessages} messages from ${results.length} ${chatType}`);
+    
+    if (results.length > 0) {
+        console.log(`📊 DEBUG: Breakdown by chat:`);
+        results.forEach((result, index) => {
+            console.log(`  ${index + 1}. ${result.chatName}: ${result.messageCount} messages`);
+        });
+    }
 }
 
 /**
  * Extract messages from all chats
  */
-async function extractAllChats(service: TelegramToNotionService): Promise<void> {
+async function extractAllChats(service: TelegramToNotionService, messageLimit?: number): Promise<void> {
     try {
-        console.log('\n🔄 Extracting messages from all chats...');
-        console.log('⚠️  This might take a while depending on how many chats you have');
-        console.log('📋 Debug: About to call extractAllChatsToNotion');
+        const limit = messageLimit || 50;
+        console.log(`\n🔄 DEBUG: Starting extraction from all chats (limit: ${limit})...`);
+        console.log('⚠️  DEBUG: This might take a while depending on how many chats you have');
+        console.log('📋 DEBUG: About to call extractAllChatsToNotion');
+
+        const extractionStartTime = Date.now();
+        console.log(`⏰ DEBUG: All chats extraction started at ${new Date().toISOString()}`);
 
         const results = await service.extractAllChatsToNotion({
-            messageLimit: 50
+            messageLimit: limit
         });
 
-        console.log('📋 Debug: extractAllChatsToNotion completed');
+        const extractionTime = Date.now() - extractionStartTime;
+        console.log(`⏰ DEBUG: All chats extraction completed in ${extractionTime}ms`);
+        console.log('✅ DEBUG: extractAllChatsToNotion completed successfully');
+        
         const totalMessages = results.reduce((sum, result) => sum + result.messageCount, 0);
-        console.log(`\n✅ Successfully extracted ${totalMessages} messages from ${results.length} chats`);
+        console.log(`\n🎉 Successfully extracted ${totalMessages} messages from ${results.length} chats`);
+        
+        // Show breakdown
+        if (results.length > 0) {
+            console.log(`📊 DEBUG: Extraction breakdown:`);
+            results.forEach((result, index) => {
+                console.log(`  ${index + 1}. ${result.chatName}: ${result.messageCount} messages`);
+            });
+        }
     } catch (error) {
-        console.error('❌ Error in extractAllChats:', error);
+        console.error('❌ DEBUG: Error in extractAllChats:', error);
+        console.error('❌ DEBUG: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
         throw error;
+    }
+}
+
+/**
+ * Create a new messages database using CLI arguments
+ */
+async function createDatabaseCli(service: TelegramToNotionService, options: CliOptions): Promise<void> {
+    if (!options.parentPageId) {
+        console.log('❌ DEBUG: No parent page ID provided. Use --parent-page option.');
+        return;
+    }
+
+    const title = options.databaseTitle || 'Telegram Messages';
+    
+    console.log(`\n🔄 DEBUG: Creating messages database "${title}" in page ${options.parentPageId}...`);
+    
+    try {
+        const databaseId = await service.createMessagesDatabase(
+            options.parentPageId.trim(),
+            title.trim()
+        );
+        
+        console.log(`\n✅ Database created successfully!`);
+        console.log(`📋 Database ID: ${databaseId}`);
+        console.log(`💡 Add this to your .env file as NOTION_DATABASE_ID=${databaseId}`);
+    } catch (error) {
+        console.error(`❌ Failed to create database:`, error);
     }
 }
 
@@ -310,103 +506,7 @@ async function batchExample(): Promise<void> {
     }
 }
 
-/**
- * Create a new messages database
- */
-async function createDatabase(service: TelegramToNotionService, rl: any): Promise<void> {
-    const parentPageId = await rl.question('\nEnter the parent page ID where the database should be created: ');
-    const title = await rl.question('Enter a title for the database (default: "Telegram Messages"): ');
-    
-    console.log('\n🔄 Creating messages database...');
-    
-    try {
-        const databaseId = await service.createMessagesDatabase(
-            parentPageId.trim(),
-            title.trim() || 'Telegram Messages'
-        );
-        
-        console.log(`\n✅ Database created successfully!`);
-        console.log(`📋 Database ID: ${databaseId}`);
-        console.log(`💡 Add this to your .env file as NOTION_DATABASE_ID=${databaseId}`);
-    } catch (error) {
-        console.error(`❌ Failed to create database:`, error);
-    }
-}
 
-/**
- * Query messages from the database
- */
-async function queryMessages(service: TelegramToNotionService, rl: any): Promise<void> {
-    console.log('\n🔍 Query messages from database');
-    console.log('Leave fields empty to skip filtering by that criteria\n');
-    
-    const chatName = await rl.question('Filter by chat name (partial match): ');
-    const sender = await rl.question('Filter by sender name (partial match): ');
-    const direction = await rl.question('Filter by direction (Incoming/Outgoing): ');
-    const startDate = await rl.question('Filter by start date (YYYY-MM-DD): ');
-    const endDate = await rl.question('Filter by end date (YYYY-MM-DD): ');
-    const limit = await rl.question('Maximum results (default: 20): ');
-    
-    const queryOptions: any = {};
-    
-    if (chatName.trim()) queryOptions.chatName = chatName.trim();
-    if (sender.trim()) queryOptions.sender = sender.trim();
-    if (direction.trim() && (direction.trim() === 'Incoming' || direction.trim() === 'Outgoing')) {
-        queryOptions.direction = direction.trim();
-    }
-    if (startDate.trim()) {
-        try {
-            queryOptions.startDate = new Date(startDate.trim());
-        } catch (e) {
-            console.log('⚠️  Invalid start date format, skipping...');
-        }
-    }
-    if (endDate.trim()) {
-        try {
-            queryOptions.endDate = new Date(endDate.trim());
-        } catch (e) {
-            console.log('⚠️  Invalid end date format, skipping...');
-        }
-    }
-    if (limit.trim()) {
-        const limitNum = parseInt(limit.trim());
-        if (limitNum > 0) queryOptions.limit = limitNum;
-    }
-    
-    if (!queryOptions.limit) queryOptions.limit = 20;
-    
-    console.log('\n🔄 Querying messages...');
-    
-    try {
-        const messages = await service.queryMessages(queryOptions);
-        
-        if (messages.length === 0) {
-            console.log('📭 No messages found matching your criteria');
-            return;
-        }
-        
-        console.log(`\n📨 Found ${messages.length} messages:\n`);
-        
-        messages.forEach((page: any, index: number) => {
-            const properties = page.properties;
-            const content = properties.Content?.rich_text?.[0]?.text?.content || '[No content]';
-            const sender = properties.Sender?.rich_text?.[0]?.text?.content || 'Unknown';
-            const chat = properties.Chat?.rich_text?.[0]?.text?.content || 'Unknown';
-            const date = properties.Date?.date?.start || 'Unknown date';
-            const direction = properties.Direction?.select?.name || 'Unknown';
-            
-            const directionIcon = direction === 'Incoming' ? '→' : '←';
-            const truncatedContent = content.length > 60 ? content.substring(0, 60) + '...' : content;
-            
-            console.log(`${index + 1}. ${directionIcon} [${new Date(date).toLocaleString()}] ${sender} in ${chat}`);
-            console.log(`   "${truncatedContent}"`);
-            console.log('');
-        });
-        
-    } catch (error) {
-        console.error(`❌ Failed to query messages:`, error);
-    }
-}
 
 /**
  * Show database statistics
@@ -448,9 +548,9 @@ async function showDatabaseStats(service: TelegramToNotionService): Promise<void
 }
 
 // Export functions for use in other scripts
-export { interactiveExample, simpleExample, batchExample };
+export { cliExample, simpleExample, batchExample };
 
-// Run interactive example if this file is executed directly
+// Run CLI example if this file is executed directly
 if (import.meta.url === `file://${process.argv[1]}`) {
     // Check if user wants to run a specific example
     const exampleType = process.argv[2];
@@ -463,6 +563,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
             batchExample().catch(console.error);
             break;
         default:
-            interactiveExample().catch(console.error);
+            cliExample().catch(console.error);
     }
 }

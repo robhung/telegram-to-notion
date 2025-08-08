@@ -39,6 +39,18 @@ export class TelegramToNotionService {
   }
 
   /**
+   * Timeout wrapper for operations that might hang
+   */
+  private async withTimeout<T>(operation: Promise<T>, timeoutMs: number, operationName: string): Promise<T> {
+    return Promise.race([
+      operation,
+      new Promise<T>((_, reject) => 
+        setTimeout(() => reject(new Error(`Operation '${operationName}' timed out after ${timeoutMs}ms`)), timeoutMs)
+      )
+    ]);
+  }
+
+  /**
    * Extract messages from a specific chat and push to Notion
    */
   async extractChatToNotion(
@@ -52,58 +64,80 @@ export class TelegramToNotionService {
       dateFilter
     } = options;
 
+    console.log(`🚀 DEBUG: Starting extractChatToNotion for chat ${chatId}`);
+    console.log(`🚀 DEBUG: Options:`, { messageLimit, includeOutgoing, includeMedia, dateFilter });
+    const startTime = Date.now();
+
     try {
       // Ensure Telegram connection
+      console.log('🔗 DEBUG: Checking Telegram connection...');
       if (!this.telegramClient.isConnected()) {
-        console.log('Connecting to Telegram...');
-        await this.telegramClient.connect();
+        console.log('🔗 DEBUG: Not connected, connecting to Telegram...');
+        await this.withTimeout(
+          this.telegramClient.connect(),
+          30000,
+          'Telegram connection'
+        );
+        console.log('✅ DEBUG: Telegram connection established');
+      } else {
+        console.log('✅ DEBUG: Already connected to Telegram');
       }
 
       // Test Notion connection
-      console.log('🔍 Debug: Testing Notion connection...');
+      console.log('🔍 DEBUG: Testing Notion connection...');
       try {
-        const notionConnected = await Promise.race([
+        const notionConnected = await this.withTimeout(
           this.notionClient.testConnection(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Connection test timeout')), 10000))
-        ]);
+          15000,
+          'Notion connection test'
+        );
         if (!notionConnected) {
           throw new Error('Failed to connect to Notion');
         }
-        console.log('✅ Debug: Notion connection verified');
+        console.log('✅ DEBUG: Notion connection verified');
       } catch (error) {
-        console.warn('⚠️  Debug: Notion connection test failed or timed out:', error instanceof Error ? error.message : String(error));
-        console.log('🔄 Debug: Proceeding anyway (connection will be tested when adding messages)...');
+        console.warn('⚠️  DEBUG: Notion connection test failed or timed out:', error instanceof Error ? error.message : String(error));
+        console.log('🔄 DEBUG: Proceeding anyway (connection will be tested when adding messages)...');
       }
 
       // Get chat information
-      console.log('🔍 Debug: Getting chat information...');
-      const dialogs = await this.telegramClient.getDialogs();
+      console.log('📋 DEBUG: Getting chat information...');
+      const dialogs = await this.withTimeout(
+        this.telegramClient.getDialogs(),
+        20000,
+        'Get dialogs'
+      );
+      console.log(`📋 DEBUG: Retrieved ${dialogs.length} dialogs`);
+      
       const chat = dialogs.find(d => d.id.toString() === chatId.toString());
       const chatName = chat?.title || `Chat ${chatId}`;
-
-      console.log(`🔍 Debug: Extracting messages from: ${chatName}`);
+      console.log(`📋 DEBUG: Found chat: ${chatName} (ID: ${chatId})`);
 
       // Get messages from Telegram
-      console.log('🔍 Debug: Getting messages from Telegram...');
-      const telegramMessages = await this.telegramClient.getMessages(chatId, messageLimit);
-      console.log(`🔍 Debug: Retrieved ${telegramMessages.length} raw messages`);
+      console.log('📨 DEBUG: Getting messages from Telegram...');
+      const telegramMessages = await this.withTimeout(
+        this.telegramClient.getMessages(chatId, messageLimit),
+        30000,
+        'Get messages from Telegram'
+      );
+      console.log(`📨 DEBUG: Retrieved ${telegramMessages.length} raw messages`);
 
       // Filter messages based on options
-      console.log('🔍 Debug: Filtering messages...');
+      console.log('🔍 DEBUG: Filtering messages...');
       const filteredMessages = this.filterMessages(telegramMessages, {
         includeOutgoing,
         includeMedia,
         dateFilter
       });
-      console.log(`🔍 Debug: ${filteredMessages.length} messages after filtering`);
+      console.log(`🔍 DEBUG: ${filteredMessages.length} messages after filtering`);
 
       // Convert to Notion format
-      console.log('🔍 Debug: Converting to Notion format...');
+      console.log('🔄 DEBUG: Converting to Notion format...');
       const notionMessages = this.convertToNotionMessages(filteredMessages, chatName, chatId);
-      console.log(`🔍 Debug: ${notionMessages.length} messages ready for Notion`);
+      console.log(`🔄 DEBUG: ${notionMessages.length} messages ready for Notion`);
 
       if (notionMessages.length === 0) {
-        console.log('No messages to extract after filtering');
+        console.log('📭 DEBUG: No messages to extract after filtering');
         return {
           chatName,
           chatId,
@@ -113,9 +147,18 @@ export class TelegramToNotionService {
       }
 
       // Push messages to Notion database as individual pages
-      console.log('🔍 Debug: Adding messages to Notion database...');
-      await this.notionClient.addMessages(notionMessages);
-      console.log('🔍 Debug: Successfully added messages to Notion!');
+      console.log('💾 DEBUG: Adding messages to Notion database...');
+      console.log(`💾 DEBUG: About to add ${notionMessages.length} messages to Notion`);
+      
+      await this.withTimeout(
+        this.notionClient.addMessages(notionMessages),
+        60000, // 1 minute timeout for adding messages
+        'Add messages to Notion'
+      );
+      
+      console.log('✅ DEBUG: Successfully added messages to Notion!');
+      const totalTime = Date.now() - startTime;
+      console.log(`🏁 DEBUG: Total extraction time: ${totalTime}ms`);
 
       console.log(`Successfully extracted ${notionMessages.length} messages from ${chatName} to Notion`);
 
@@ -127,7 +170,9 @@ export class TelegramToNotionService {
       };
 
     } catch (error) {
-      console.error('Error extracting chat to Notion:', error);
+      const totalTime = Date.now() - startTime;
+      console.error(`❌ DEBUG: Error in extractChatToNotion after ${totalTime}ms:`, error);
+      console.error(`❌ DEBUG: Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
       throw error;
     }
   }
@@ -139,53 +184,77 @@ export class TelegramToNotionService {
     chatIds: (string | number)[],
     options: ExtractionOptions = {}
   ): Promise<ExtractionResult[]> {
+    console.log(`🚀 DEBUG: Starting extractMultipleChatsToNotion for ${chatIds.length} chats`);
+    console.log(`🚀 DEBUG: Chat IDs:`, chatIds);
+    const startTime = Date.now();
     const results: ExtractionResult[] = [];
 
     try {
       // Ensure Telegram connection
+      console.log('🔗 DEBUG: Checking Telegram connection for multiple chats...');
       if (!this.telegramClient.isConnected()) {
-        console.log('Connecting to Telegram...');
-        await this.telegramClient.connect();
+        console.log('🔗 DEBUG: Not connected, connecting to Telegram...');
+        await this.withTimeout(
+          this.telegramClient.connect(),
+          30000,
+          'Telegram connection for multiple chats'
+        );
+        console.log('✅ DEBUG: Telegram connection established');
+      } else {
+        console.log('✅ DEBUG: Already connected to Telegram');
       }
 
       // Test Notion connection
-      console.log('Testing Notion connection...');
+      console.log('🔍 DEBUG: Testing Notion connection for multiple chats...');
       try {
-        const notionConnected = await Promise.race([
+        const notionConnected = await this.withTimeout(
           this.notionClient.testConnection(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Connection test timeout')), 10000))
-        ]);
+          15000,
+          'Notion connection test for multiple chats'
+        );
         if (!notionConnected) {
           throw new Error('Failed to connect to Notion');
         }
-        console.log('✅ Notion connection verified');
+        console.log('✅ DEBUG: Notion connection verified for multiple chats');
       } catch (error) {
-        console.warn('⚠️  Notion connection test failed or timed out:', error instanceof Error ? error.message : String(error));
-        console.log('🔄 Proceeding anyway (connection will be tested when adding messages)...');
+        console.warn('⚠️  DEBUG: Notion connection test failed or timed out:', error instanceof Error ? error.message : String(error));
+        console.log('🔄 DEBUG: Proceeding anyway (connection will be tested when adding messages)...');
       }
 
-      console.log(`Extracting messages from ${chatIds.length} chats...`);
+      console.log(`🔄 DEBUG: Starting extraction from ${chatIds.length} chats...`);
 
-      for (const chatId of chatIds) {
+      for (let i = 0; i < chatIds.length; i++) {
+        const chatId = chatIds[i];
+        console.log(`📨 DEBUG: Processing chat ${i + 1}/${chatIds.length}: ${chatId}`);
+        
         try {
           const result = await this.extractChatToNotion(chatId, options);
           results.push(result);
+          console.log(`✅ DEBUG: Completed chat ${i + 1}/${chatIds.length}: ${result.chatName} (${result.messageCount} messages)`);
 
           // Small delay between chats to respect rate limits
-          await new Promise(resolve => setTimeout(resolve, 500));
+          if (i < chatIds.length - 1) {
+            console.log('⏱️  DEBUG: Waiting 500ms before next chat...');
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
         } catch (error) {
-          console.error(`Failed to extract chat ${chatId}:`, error);
+          console.error(`❌ DEBUG: Failed to extract chat ${chatId}:`, error);
+          console.error(`❌ DEBUG: Error stack for chat ${chatId}:`, error instanceof Error ? error.stack : 'No stack trace');
           // Continue with other chats
         }
       }
 
       const totalMessages = results.reduce((sum, result) => sum + result.messageCount, 0);
-      console.log(`Successfully extracted ${totalMessages} messages from ${results.length} chats`);
+      const totalTime = Date.now() - startTime;
+      console.log(`🏁 DEBUG: Multiple chats extraction completed in ${totalTime}ms`);
+      console.log(`📊 DEBUG: Successfully extracted ${totalMessages} messages from ${results.length}/${chatIds.length} chats`);
 
       return results;
 
     } catch (error) {
-      console.error('Error extracting multiple chats:', error);
+      const totalTime = Date.now() - startTime;
+      console.error(`❌ DEBUG: Error in extractMultipleChatsToNotion after ${totalTime}ms:`, error);
+      console.error(`❌ DEBUG: Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
       throw error;
     }
   }
@@ -194,27 +263,64 @@ export class TelegramToNotionService {
    * Extract messages from all available chats
    */
   async extractAllChatsToNotion(options: ExtractionOptions = {}): Promise<ExtractionResult[]> {
+    console.log(`🚀 DEBUG: Starting extractAllChatsToNotion`);
+    console.log(`🚀 DEBUG: Options:`, options);
+    const startTime = Date.now();
+
     try {
       // Ensure Telegram connection
+      console.log('🔗 DEBUG: Checking Telegram connection for all chats...');
       if (!this.telegramClient.isConnected()) {
-        console.log('Connecting to Telegram...');
-        await this.telegramClient.connect();
+        console.log('🔗 DEBUG: Not connected, connecting to Telegram...');
+        await this.withTimeout(
+          this.telegramClient.connect(),
+          30000,
+          'Telegram connection for all chats'
+        );
+        console.log('✅ DEBUG: Telegram connection established');
+      } else {
+        console.log('✅ DEBUG: Already connected to Telegram');
       }
 
       // Get all dialogs
-      const dialogs = await this.telegramClient.getDialogs();
+      console.log('📋 DEBUG: Getting all dialogs...');
+      const dialogs = await this.withTimeout(
+        this.telegramClient.getDialogs(),
+        25000,
+        'Get all dialogs'
+      );
+      console.log(`📋 DEBUG: Retrieved ${dialogs.length} total dialogs`);
       
       // Filter dialogs based on chat filter options
+      console.log('🔍 DEBUG: Filtering dialogs...');
       const filteredDialogs = this.filterDialogs(dialogs, options.chatFilter);
+      console.log(`🔍 DEBUG: ${filteredDialogs.length} chats after filtering`);
 
-      console.log(`Found ${filteredDialogs.length} chats to extract`);
+      if (filteredDialogs.length === 0) {
+        console.log('📭 DEBUG: No chats match the filter criteria');
+        return [];
+      }
+
+      console.log(`📊 DEBUG: About to extract from ${filteredDialogs.length} chats`);
+      filteredDialogs.forEach((dialog, index) => {
+        console.log(`📊 DEBUG: Chat ${index + 1}: ${dialog.title} (ID: ${dialog.id})`);
+      });
 
       // Extract each chat
       const chatIds = filteredDialogs.map(dialog => dialog.id);
-      return await this.extractMultipleChatsToNotion(chatIds, options);
+      console.log('🔄 DEBUG: Starting extraction from multiple chats...');
+      
+      const results = await this.extractMultipleChatsToNotion(chatIds, options);
+      
+      const totalTime = Date.now() - startTime;
+      console.log(`🏁 DEBUG: All chats extraction completed in ${totalTime}ms`);
+      
+      return results;
 
     } catch (error) {
-      console.error('Error extracting all chats:', error);
+      const totalTime = Date.now() - startTime;
+      console.error(`❌ DEBUG: Error in extractAllChatsToNotion after ${totalTime}ms:`, error);
+      console.error(`❌ DEBUG: Error stack:`, error instanceof Error ? error.stack : 'No stack trace');
       throw error;
     }
   }

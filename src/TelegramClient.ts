@@ -173,6 +173,7 @@ export class TelegramClient {
    * Attempt to connect and authenticate
    */
   private async attemptConnection(): Promise<boolean> {
+    console.log('🔌 DEBUG: Starting attemptConnection...');
     try {
 
       if (!this.client) {
@@ -181,66 +182,87 @@ export class TelegramClient {
 
       // Check if we already have a valid session
       const sessionString = this.session.save();
+      console.log(`🔌 DEBUG: Session string length: ${sessionString ? sessionString.length : 0}`);
+      
       if (sessionString) {
-        console.log('Using existing session...');
+        console.log('🔌 DEBUG: Using existing session...');
         try {
+          console.log('🔌 DEBUG: Calling client.connect()...');
+          const connectStart = Date.now();
+          
           await this.client.connect();
+          
+          const connectDuration = Date.now() - connectStart;
+          console.log(`🔌 DEBUG: client.connect() completed in ${connectDuration}ms`);
+          
           if (this.client.connected) {
-            console.log('Successfully connected with existing session!');
+            console.log('✅ DEBUG: Successfully connected with existing session!');
             return true;
+          } else {
+            console.warn('⚠️  DEBUG: connect() succeeded but client.connected is false');
           }
         } catch (error) {
-          console.warn('Existing session failed, will create new one');
+          console.warn('⚠️  DEBUG: Existing session failed, will create new one:', error);
           // Clear the invalid session and recreate client with same config
           this.session = new StringSession('');
           throw new Error('Session invalid, need new authentication');
         }
       }
 
-      console.log('Starting new authentication...');
+      console.log('🔌 DEBUG: Starting new authentication...');
       const rl = createInterface({
         input: process.stdin,
         output: process.stdout,
       });
 
+      console.log('🔌 DEBUG: Calling client.start()...');
+      const startTime = Date.now();
+      
       await this.client.start({
         phoneNumber: async (): Promise<string> => {
-          console.log(`Using phone number: ${this.phoneNumber}`);
+          console.log(`🔌 DEBUG: Using phone number: ${this.phoneNumber}`);
           return this.phoneNumber;
         },
         password: async (): Promise<string> => {
           const answer = await rl.question('Enter your 2FA password: ');
+          console.log('🔌 DEBUG: 2FA password entered');
           return answer;
         },
         phoneCode: async (): Promise<string> => {
           const answer = await rl.question('Enter the code you received: ');
+          console.log('🔌 DEBUG: Phone code entered');
           return answer;
         },
         onError: (err: Error): void => {
-          console.error('Authentication error:', err);
+          console.error('❌ DEBUG: Authentication error:', err);
           // If we get an auth error, clean up the session
           this.session = new StringSession('');
         },
       });
+      
+      const startDuration = Date.now() - startTime;
+      console.log(`🔌 DEBUG: client.start() completed in ${startDuration}ms`);
 
       rl.close();
 
       // Save the session after successful authentication
+      console.log('🔌 DEBUG: Saving session...');
       this.saveSession();
 
-      console.log('Successfully connected to Telegram!');
-      console.log('Session saved to .env file');
+      console.log('✅ DEBUG: Successfully connected to Telegram!');
+      console.log('✅ DEBUG: Session saved to .env file');
       
       return true;
     } catch (error) {
-      console.error('Connection attempt failed:', error);
+      console.error('❌ DEBUG: Connection attempt failed:', error);
+      console.error('❌ DEBUG: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       
       // If connection failed with authentication error, clean up session
       if (error instanceof Error && (
         error.message.includes('invalid new nonce hash') ||
         error.message.includes('Session invalid')
       )) {
-        console.log('Cleaning up invalid session...');
+        console.log('🧹 DEBUG: Cleaning up invalid session...');
         this.session = new StringSession('');
         this.updateEnvFile('TELEGRAM_SESSION', '');
       }
@@ -287,13 +309,26 @@ export class TelegramClient {
    * Get list of dialogs (chats)
    */
   async getDialogs(): Promise<DialogInfo[]> {
+    console.log('🗨️  DEBUG: Starting getDialogs...');
     if (!this.client) {
       throw new Error('Client not connected. Call connect() first.');
     }
 
+    if (!this.client.connected) {
+      console.error('❌ DEBUG: Client exists but is not connected!');
+      throw new Error('Client not connected');
+    }
+
     try {
+      console.log('🗨️  DEBUG: Calling client.getDialogs()...');
+      const startTime = Date.now();
+      
       const dialogs = await this.client.getDialogs();
-      return dialogs.map((dialog): DialogInfo => ({
+      
+      const duration = Date.now() - startTime;
+      console.log(`🗨️  DEBUG: getDialogs completed in ${duration}ms, found ${dialogs.length} dialogs`);
+      
+      const result = dialogs.map((dialog): DialogInfo => ({
         id: dialog.id?.toString() || '',
         title: dialog.title || '',
         isUser: dialog.isUser || false,
@@ -301,8 +336,12 @@ export class TelegramClient {
         isChannel: dialog.isChannel || false,
         unreadCount: dialog.unreadCount || 0,
       }));
+      
+      console.log(`🗨️  DEBUG: Mapped ${result.length} dialogs to DialogInfo format`);
+      return result;
     } catch (error) {
-      console.error('Error getting dialogs:', error);
+      console.error('❌ DEBUG: Error getting dialogs:', error);
+      console.error('❌ DEBUG: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       throw error;
     }
   }
@@ -313,16 +352,28 @@ export class TelegramClient {
    * @param limit - Number of messages to retrieve (default: 10)
    */
   async getMessages(chatId: string | number, limit: number = 10): Promise<MessageInfo[]> {
+    console.log(`💬 DEBUG: Starting getMessages for chat ${chatId}, limit: ${limit}`);
     if (!this.client) {
       throw new Error('Client not connected. Call connect() first.');
     }
 
+    if (!this.client.connected) {
+      console.error('❌ DEBUG: Client exists but is not connected!');
+      throw new Error('Client not connected');
+    }
+
     try {
+      console.log(`💬 DEBUG: Calling client.getMessages for chat ${chatId}...`);
+      const startTime = Date.now();
+      
       const messages = await this.client.getMessages(chatId, {
         limit: limit,
       });
+      
+      const duration = Date.now() - startTime;
+      console.log(`💬 DEBUG: getMessages completed in ${duration}ms, found ${messages.length} messages`);
 
-      return messages.map((msg): MessageInfo => ({
+      const result = messages.map((msg): MessageInfo => ({
         id: msg.id,
         message: msg.message,
         date: msg.date,
@@ -334,8 +385,12 @@ export class TelegramClient {
           hasMedia: true
         } : null
       }));
+      
+      console.log(`💬 DEBUG: Mapped ${result.length} messages to MessageInfo format`);
+      return result;
     } catch (error) {
-      console.error('Error getting messages:', error);
+      console.error(`❌ DEBUG: Error getting messages for chat ${chatId}:`, error);
+      console.error('❌ DEBUG: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       throw error;
     }
   }

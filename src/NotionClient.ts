@@ -42,9 +42,14 @@ export class NotionClient {
    * Add a single message as a database page
    */
   async addMessage(message: NotionMessage): Promise<string> {
+    console.log(`📝 DEBUG: Adding message ${message.id} from ${message.sender}`);
+    const startTime = Date.now();
+    
     try {
+      console.log(`📝 DEBUG: Creating properties for message ${message.id}...`);
       const pageProperties = await this.createMessageProperties(message);
       
+      console.log(`📝 DEBUG: Creating page for message ${message.id}...`);
       const response = await this.client.pages.create({
         parent: {
           type: 'database_id',
@@ -53,16 +58,24 @@ export class NotionClient {
         properties: pageProperties,
       });
 
-      console.log(`Added message ${message.id} as database page`);
+      const duration = Date.now() - startTime;
+      console.log(`✅ DEBUG: Added message ${message.id} as database page in ${duration}ms`);
       return response.id;
     } catch (error: any) {
       // Check if error is due to missing properties
       if (error.code === 'validation_error' && error.message?.includes('is not a property that exists')) {
-        console.log('🔧 Database missing required properties, adding them...');
+        console.log('🔧 DEBUG: Database missing required properties, adding them...');
+        const schemaStart = Date.now();
+        
         await this.ensureDatabaseSchema();
         
+        const schemaDuration = Date.now() - schemaStart;
+        console.log(`🔧 DEBUG: Schema update completed in ${schemaDuration}ms`);
+        
         // Retry the operation
-        console.log('🔄 Retrying message addition...');
+        console.log('🔄 DEBUG: Retrying message addition...');
+        const retryStart = Date.now();
+        
         const pageProperties = await this.createMessageProperties(message);
         const response = await this.client.pages.create({
           parent: {
@@ -72,11 +85,15 @@ export class NotionClient {
           properties: pageProperties,
         });
 
-        console.log(`✅ Added message ${message.id} as database page (after schema update)`);
+        const retryDuration = Date.now() - retryStart;
+        const totalDuration = Date.now() - startTime;
+        console.log(`✅ DEBUG: Added message ${message.id} as database page (after schema update) in ${retryDuration}ms (total: ${totalDuration}ms)`);
         return response.id;
       }
       
-      console.error('Error adding message to Notion database:', error);
+      const duration = Date.now() - startTime;
+      console.error(`❌ DEBUG: Error adding message ${message.id} after ${duration}ms:`, error);
+      console.error('❌ DEBUG: Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       throw error;
     }
   }
