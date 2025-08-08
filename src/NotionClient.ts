@@ -165,19 +165,19 @@ export class NotionClient {
     const titlePropertyName = this.getTitlePropertyName(database.properties);
     
     const properties: any = {
-      // Use existing title property or create new one
+      // Use existing title property or create new one - set to Message ID
       [titlePropertyName]: {
         title: [
           {
             text: {
-              content: this.truncateText(message.content || '[No content]', 100),
+              content: message.id.toString(),
             },
           },
         ],
       },
       
       // Rich text for full message content
-      'Content': {
+      'Message': {
         rich_text: [
           {
             text: {
@@ -221,11 +221,6 @@ export class NotionClient {
         select: {
           name: message.isOutgoing ? 'Outgoing' : 'Incoming',
         },
-      },
-      
-      // Message ID
-      'Message ID': {
-        number: message.id,
       },
     };
 
@@ -285,10 +280,10 @@ export class NotionClient {
           },
         ],
         properties: {
-          'Message': {
+          'Message ID': {
             title: {},
           },
-          'Content': {
+          'Message': {
             rich_text: {},
           },
           'Sender': {
@@ -314,9 +309,7 @@ export class NotionClient {
               ],
             },
           },
-          'Message ID': {
-            number: {},
-          },
+
           'Media Type': {
             rich_text: {},
           },
@@ -411,7 +404,7 @@ export class NotionClient {
     );
     
     const properties: any = {
-      'Content': {
+      'Message': {
         rich_text: {},
       },
       'Sender': {
@@ -437,9 +430,7 @@ export class NotionClient {
           ],
         },
       },
-      'Message ID': {
-        number: {},
-      },
+
       'Media Type': {
         rich_text: {},
       },
@@ -450,7 +441,7 @@ export class NotionClient {
     
     // Only add a title property if one doesn't exist
     if (titlePropertyName === undefined) {
-      properties['Message'] = {
+      properties['Message ID'] = {
         title: {},
       };
     }
@@ -466,7 +457,7 @@ export class NotionClient {
       key => existingProperties[key].type === 'title'
     );
     // Return the existing title property name, even if it's empty string
-    return titlePropertyName !== undefined ? titlePropertyName : 'Message';
+    return titlePropertyName !== undefined ? titlePropertyName : 'Message ID';
   }
 
   /**
